@@ -3,7 +3,7 @@ module github.com/crossplane-contrib/crossplane-lint
 go 1.19
 
 //replace github.com/crossplane/crossplane => github.com/phisco/crossplane validation-code-cleanup
-replace github.com/crossplane/crossplane => ../crossplane
+replace github.com/crossplane/crossplane => github.com/phisco/crossplane v1.12.0-rc.0.0.20230419121756-124261e40541
 
 require (
 	github.com/alecthomas/kong v0.7.2-0.20221130112736-919e70103f7a

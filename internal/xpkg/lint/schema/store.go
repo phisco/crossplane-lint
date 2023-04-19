@@ -6,6 +6,7 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sync"
 )
 
 const (
@@ -15,11 +16,13 @@ const (
 
 type SchemaStore struct {
 	crds map[schema.GroupKind]apiextensions.CustomResourceDefinition
+	mu   *sync.RWMutex
 }
 
 func NewSchemaStore() *SchemaStore {
 	return &SchemaStore{
 		crds: map[schema.GroupKind]apiextensions.CustomResourceDefinition{},
+		mu:   &sync.RWMutex{},
 	}
 }
 
@@ -61,6 +64,8 @@ func (s *SchemaStore) RegisterPackage(pkg *xpkg.Package) error {
 }
 
 func (s *SchemaStore) registerCRD(crd *extv1.CustomResourceDefinition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	gk := schema.GroupKind{
 		Group: crd.Spec.Group,
 		Kind:  crd.Spec.Names.Kind,
@@ -145,13 +150,21 @@ func (s *SchemaStore) GetCRDSchemaValidation(gvk schema.GroupVersionKind) *apiex
 }
 
 func (s *SchemaStore) GetCRDSchema(gk schema.GroupKind) *apiextensions.CustomResourceDefinition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	crd, exists := s.crds[gk]
 	if !exists {
 		return nil
 	}
-	return &crd
+	return crd.DeepCopy()
 }
 
 func (s *SchemaStore) GetAll() map[schema.GroupKind]apiextensions.CustomResourceDefinition {
-	return s.crds
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[schema.GroupKind]apiextensions.CustomResourceDefinition, len(s.crds))
+	for k, v := range s.crds {
+		out[k] = *v.DeepCopy()
+	}
+	return out
 }
