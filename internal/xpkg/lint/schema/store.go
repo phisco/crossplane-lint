@@ -3,6 +3,7 @@ package schema
 import (
 	"github.com/crossplane-contrib/crossplane-lint/internal/xpkg"
 	"github.com/pkg/errors"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -13,12 +14,12 @@ const (
 )
 
 type SchemaStore struct {
-	versions map[schema.GroupVersionKind]*extv1.CustomResourceDefinitionVersion
+	crds map[schema.GroupKind]apiextensions.CustomResourceDefinition
 }
 
 func NewSchemaStore() *SchemaStore {
 	return &SchemaStore{
-		versions: map[schema.GroupVersionKind]*extv1.CustomResourceDefinitionVersion{},
+		crds: map[schema.GroupKind]apiextensions.CustomResourceDefinition{},
 	}
 }
 
@@ -30,7 +31,9 @@ func (s *SchemaStore) RegisterPackage(pkg *xpkg.Package) error {
 			if err != nil {
 				return err
 			}
-			s.registerCRD(crd)
+			if err := s.registerCRD(crd); err != nil {
+				return err
+			}
 		case e.IsXRD():
 			xrd, err := e.AsXRD()
 			if err != nil {
@@ -40,34 +43,40 @@ func (s *SchemaStore) RegisterPackage(pkg *xpkg.Package) error {
 			if err != nil {
 				return errors.Wrap(err, errBuildCompositeCRD)
 			}
-			s.registerCRD(comp)
+			if err := s.registerCRD(comp); err != nil {
+				return err
+			}
 			if xrd.Spec.ClaimNames != nil {
 				claim, err := ForCompositeResourceClaim(xrd)
 				if err != nil {
 					return errors.Wrap(err, errBuildClaimCRD)
 				}
-				s.registerCRD(claim)
+				if err := s.registerCRD(claim); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func (s *SchemaStore) registerCRD(crd *extv1.CustomResourceDefinition) {
+func (s *SchemaStore) registerCRD(crd *extv1.CustomResourceDefinition) error {
 	gk := schema.GroupKind{
 		Group: crd.Spec.Group,
 		Kind:  crd.Spec.Names.Kind,
 	}
-	for _, v := range crd.Spec.Versions {
-		version := v
-		gvk := gk.WithVersion(version.Name)
-		addMetaDataToSchema(&version)
-		s.versions[gvk] = &version
+
+	extCRD := apiextensions.CustomResourceDefinition{}
+	if err := extv1.Convert_v1_CustomResourceDefinition_To_apiextensions_CustomResourceDefinition(crd, &extCRD, nil); err != nil {
+		return err
 	}
+
+	s.crds[gk] = extCRD
+	return nil
 }
 
-func addMetaDataToSchema(crdv *extv1.CustomResourceDefinitionVersion) {
-	additionalMetaProps := map[string]extv1.JSONSchemaProps{
+func addMetaDataToSchema(crdv *apiextensions.CustomResourceValidation) {
+	additionalMetaProps := map[string]apiextensions.JSONSchemaProps{
 		"name": {
 			Type: "string",
 		},
@@ -75,17 +84,19 @@ func addMetaDataToSchema(crdv *extv1.CustomResourceDefinitionVersion) {
 			Type: "string",
 		},
 		"labels": {
-			AdditionalProperties: &extv1.JSONSchemaPropsOrBool{
+			Type: "object",
+			AdditionalProperties: &apiextensions.JSONSchemaPropsOrBool{
 				Allows: true,
-				Schema: &extv1.JSONSchemaProps{
+				Schema: &apiextensions.JSONSchemaProps{
 					Type: "string",
 				},
 			},
 		},
 		"annotations": {
-			AdditionalProperties: &extv1.JSONSchemaPropsOrBool{
+			Type: "object",
+			AdditionalProperties: &apiextensions.JSONSchemaPropsOrBool{
 				Allows: true,
-				Schema: &extv1.JSONSchemaProps{
+				Schema: &apiextensions.JSONSchemaProps{
 					Type: "string",
 				},
 			},
@@ -94,38 +105,53 @@ func addMetaDataToSchema(crdv *extv1.CustomResourceDefinitionVersion) {
 			Type: "string",
 		},
 	}
-	if crdv.Schema == nil {
-		crdv.Schema = &extv1.CustomResourceValidation{}
-	}
-	if crdv.Schema.OpenAPIV3Schema == nil {
-		crdv.Schema.OpenAPIV3Schema = &extv1.JSONSchemaProps{
-			Properties: map[string]extv1.JSONSchemaProps{},
-		}
-	}
-	if _, exists := crdv.Schema.OpenAPIV3Schema.Properties["metadata"]; !exists {
-		crdv.Schema.OpenAPIV3Schema.Properties["metadata"] = extv1.JSONSchemaProps{
+	if _, exists := crdv.OpenAPIV3Schema.Properties["metadata"]; !exists {
+		crdv.OpenAPIV3Schema.Properties["metadata"] = apiextensions.JSONSchemaProps{
 			Type:       "object",
-			Properties: map[string]extv1.JSONSchemaProps{},
+			Properties: map[string]apiextensions.JSONSchemaProps{},
 		}
 	}
-	if crdv.Schema.OpenAPIV3Schema.Properties["metadata"].Properties == nil {
-		prop := crdv.Schema.OpenAPIV3Schema.Properties["metadata"]
-		prop.Properties = map[string]extv1.JSONSchemaProps{}
-		crdv.Schema.OpenAPIV3Schema.Properties["metadata"] = prop
+	if crdv.OpenAPIV3Schema.Properties["metadata"].Properties == nil {
+		prop := crdv.OpenAPIV3Schema.Properties["metadata"]
+		prop.Properties = map[string]apiextensions.JSONSchemaProps{}
+		crdv.OpenAPIV3Schema.Properties["metadata"] = prop
 	}
 	for name, prop := range additionalMetaProps {
-		if _, exists := crdv.Schema.OpenAPIV3Schema.Properties["metadata"].Properties[name]; !exists {
-			props := crdv.Schema.OpenAPIV3Schema.Properties["metadata"]
+		if _, exists := crdv.OpenAPIV3Schema.Properties["metadata"].Properties[name]; !exists {
+			props := crdv.OpenAPIV3Schema.Properties["metadata"]
 			props.Properties[name] = prop
-			crdv.Schema.OpenAPIV3Schema.Properties["metadata"] = props
+			crdv.OpenAPIV3Schema.Properties["metadata"] = props
 		}
 	}
 }
 
-func (s *SchemaStore) GetCRDSchema(gvk schema.GroupVersionKind) *extv1.CustomResourceDefinitionVersion {
-	version, exists := s.versions[gvk]
+func (s *SchemaStore) GetCRDSchemaValidation(gvk schema.GroupVersionKind) *apiextensions.CustomResourceValidation {
+	crd := s.GetCRDSchema(gvk.GroupKind())
+	if crd == nil {
+		return nil
+	}
+	if crd.Spec.Validation != nil {
+		addMetaDataToSchema(crd.Spec.Validation)
+		return crd.Spec.Validation
+	}
+	for _, v := range crd.Spec.Versions {
+		if v.Name == gvk.Version {
+			addMetaDataToSchema(v.Schema)
+			return v.Schema
+		}
+	}
+
+	return nil
+}
+
+func (s *SchemaStore) GetCRDSchema(gk schema.GroupKind) *apiextensions.CustomResourceDefinition {
+	crd, exists := s.crds[gk]
 	if !exists {
 		return nil
 	}
-	return version
+	return &crd
+}
+
+func (s *SchemaStore) GetAll() map[schema.GroupKind]apiextensions.CustomResourceDefinition {
+	return s.crds
 }

@@ -1,7 +1,7 @@
 package lint
 
 import (
-	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/crossplane-contrib/crossplane-lint/internal/xpkg"
@@ -28,5 +28,7 @@ type Issue struct {
 
 type LinterContext interface {
 	ReportIssue(issue Issue)
-	GetCRDSchema(gvk schema.GroupVersionKind) *extv1.CustomResourceDefinitionVersion
+	GetCRDSchemaValidation(gvk schema.GroupVersionKind) *apiextensions.CustomResourceValidation
+	GetCRDSchema(gk schema.GroupKind) *apiextensions.CustomResourceDefinition
+	GetAll() map[schema.GroupKind]apiextensions.CustomResourceDefinition
 }

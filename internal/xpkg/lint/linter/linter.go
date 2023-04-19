@@ -2,7 +2,7 @@ package lint
 
 import (
 	"golang.org/x/sync/errgroup"
-	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/crossplane-contrib/crossplane-lint/internal/xpkg"
@@ -22,14 +22,23 @@ func (c *linterContext) ReportIssue(issue lint.Issue) {
 	c.issueChan <- issue
 }
 
-func (c *linterContext) GetCRDSchema(gvk schema.GroupVersionKind) *extv1.CustomResourceDefinitionVersion {
-	return c.schemaStore.GetCRDSchema(gvk)
+func (c *linterContext) GetCRDSchemaValidation(gvk schema.GroupVersionKind) *apiextensions.CustomResourceValidation {
+	return c.schemaStore.GetCRDSchemaValidation(gvk)
+}
+
+func (c *linterContext) GetCRDSchema(gk schema.GroupKind) *apiextensions.CustomResourceDefinition {
+	return c.schemaStore.GetCRDSchema(gk)
+}
+
+func (c *linterContext) GetAll() map[schema.GroupKind]apiextensions.CustomResourceDefinition {
+	return c.schemaStore.GetAll()
 }
 
 var defaultRules = map[string]LinterRule{
-	"generic.checkDuplicates":         LinterRuleFunc(rules.CheckDuplicateObjects),
-	"composition.checkCompositeType":  LinterRuleFunc(rules.CheckCompositionCompositeTypeRef),
-	"composition.checkPathFieldPaths": LinterRuleFunc(rules.CheckCompositionFieldPaths),
+	"generic.checkDuplicates":           LinterRuleFunc(rules.CheckDuplicateObjects),
+	"composition.checkCompositeType":    LinterRuleFunc(rules.CheckCompositionCompositeTypeRef),
+	"composition.checkPathFieldPaths":   LinterRuleFunc(rules.CheckCompositionFieldPaths),
+	"composition.schemaAwareValidation": LinterRuleFunc(rules.CheckCompositionSchemaAwareValidation),
 }
 
 var _ lint.Linter = &linter{}

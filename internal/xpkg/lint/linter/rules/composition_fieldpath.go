@@ -1,12 +1,12 @@
 package rules
 
 import (
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	"sync"
 
 	"github.com/crossplane/crossplane-runtime/pkg/fieldpath"
 	xpv1 "github.com/crossplane/crossplane/apis/apiextensions/v1"
 	"github.com/pkg/errors"
-	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/pointer"
@@ -83,7 +83,7 @@ func checkCompositionFieldPaths(ctx lint.LinterContext, pkg *xpkg.Package, manif
 		return
 	}
 	compositeGvk := compositeGv.WithKind(comp.Spec.CompositeTypeRef.Kind)
-	compositeCRD := ctx.GetCRDSchema(compositeGvk)
+	compositeCRD := ctx.GetCRDSchema(compositeGvk.GroupKind())
 	if compositeCRD == nil {
 		ctx.ReportIssue(lint.Issue{
 			Entry:       &manifest,
@@ -104,7 +104,7 @@ func checkCompositionFieldPaths(ctx lint.LinterContext, pkg *xpkg.Package, manif
 			continue
 		}
 		baseGvk := base.GetObjectKind().GroupVersionKind()
-		baseCrd := ctx.GetCRDSchema(baseGvk)
+		baseCrd := ctx.GetCRDSchema(baseGvk.GroupKind())
 		if baseCrd == nil {
 			ctx.ReportIssue(lint.Issue{
 				Entry:       &manifest,
@@ -232,11 +232,11 @@ func validateFieldPath(ctx scopedContext, gvk schema.GroupVersionKind, rawPath s
 	if err != nil {
 		return err
 	}
-	crd := ctx.linterContext.GetCRDSchema(gvk)
-	if crd == nil {
+	crdV := ctx.linterContext.GetCRDSchemaValidation(gvk)
+	if crdV == nil {
 		return errors.Errorf(errNoCRDForGVK, gvk.String())
 	}
-	current := crd.Schema.OpenAPIV3Schema
+	current := crdV.OpenAPIV3Schema
 	for _, segment := range path {
 		if current == nil {
 			return nil
@@ -250,7 +250,7 @@ func validateFieldPath(ctx scopedContext, gvk schema.GroupVersionKind, rawPath s
 	return nil
 }
 
-func validateFieldPathSegment(current *extv1.JSONSchemaProps, segment fieldpath.Segment) (*extv1.JSONSchemaProps, error) {
+func validateFieldPathSegment(current *apiextensions.JSONSchemaProps, segment fieldpath.Segment) (*apiextensions.JSONSchemaProps, error) {
 	switch segment.Type {
 	case fieldpath.SegmentField:
 		propType := current.Type
@@ -265,7 +265,7 @@ func validateFieldPathSegment(current *extv1.JSONSchemaProps, segment fieldpath.
 		}
 		prop, exists := current.Properties[segment.Field]
 		if !exists {
-			if current.AdditionalProperties != nil && current.AdditionalProperties.Allows {
+			if current.AdditionalProperties != nil && (current.AdditionalProperties.Allows || current.AdditionalProperties.Schema != nil) {
 				return current.AdditionalProperties.Schema, nil
 			}
 			return nil, errors.Errorf(errFieldNotFound, segment.Field)
