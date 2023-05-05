@@ -8,7 +8,7 @@ replace github.com/crossplane/crossplane => github.com/phisco/crossplane v1.12.0
 require (
 	github.com/alecthomas/kong v0.7.2-0.20221130112736-919e70103f7a
 	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.0.0-20220516163817-760aa214b375
-	github.com/crossplane/crossplane v1.12.0-rc.0.0.20230418111805-cdc71598bb3a
+	github.com/crossplane/crossplane v1.13.0-rc.0.0.20230512114208-01186b763256
 	github.com/crossplane/crossplane-runtime v0.20.0-rc.0.0.20230330081344-bc8be4cd89f3
 	github.com/go-log/log v0.2.0
 	github.com/google/go-containerregistry v0.11.0
